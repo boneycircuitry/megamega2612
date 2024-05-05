@@ -1,0 +1,35 @@
+<ASSEMBLER_INFO>
+ <VERSION>2.2.8</VERSION>
+ <DEVICE>"ATmega328P"</DEVICE>
+ <WORKING_DIR>C:\Users\birdlabs\Documents\Atmel Studio\7.0\ym2612\ym2612\Debug</WORKING_DIR>
+ <INCLUDE_PATH>
+  <DIR>C:/Program Files (x86)\Atmel\Studio\7.0\Packs\atmel\ATmega_DFP\1.7.374\avrasm\inc</DIR>
+  <DIR>C:\Program Files (x86)\Atmel\Studio\7.0\toolchain\avr8\avrassembler\Include</DIR>
+  <DIR></DIR>
+ </INCLUDE_PATH>
+ <SOURCE_FILE>C:\Users\birdlabs\Documents\Atmel Studio\7.0\ym2612\ym2612\main.asm</SOURCE_FILE>
+ <INCLUDED_FILES>
+  <FILE>C:/Program Files (x86)\Atmel\Studio\7.0\Packs\atmel\ATmega_DFP\1.7.374\avrasm\inc\m328Pdef.inc</FILE>
+ </INCLUDED_FILES>
+ <OBJECT_FILES>
+  <FILE>C:\Users\birdlabs\Documents\Atmel Studio\7.0\ym2612\ym2612\Debug\ym2612.obj</FILE>
+ </OBJECT_FILES>
+ <HEX_FILES>
+  <FILE>ym2612.hex</FILE>
+ </HEX_FILES>
+ <OUTPUT_FILES>
+  <FILE>ym2612.map</FILE>
+  <FILE>ym2612.lss</FILE>
+ </OUTPUT_FILES>
+ <LABELS>
+  <setup><FILE>C:\Users\birdlabs\Documents\Atmel Studio\7.0\ym2612\ym2612\main.asm</FILE><LINE>151</LINE></setup>
+  <soundsetup><FILE>C:\Users\birdlabs\Documents\Atmel Studio\7.0\ym2612\ym2612\main.asm</FILE><LINE>187</LINE></soundsetup>
+  <loop><FILE>C:\Users\birdlabs\Documents\Atmel Studio\7.0\ym2612\ym2612\main.asm</FILE><LINE>260</LINE></loop>
+  <SPI_STC><FILE>C:\Users\birdlabs\Documents\Atmel Studio\7.0\ym2612\ym2612\main.asm</FILE><LINE>285</LINE></SPI_STC>
+  <i0><FILE>C:\Users\birdlabs\Documents\Atmel Studio\7.0\ym2612\ym2612\main.asm</FILE><LINE>294</LINE></i0>
+  <i1><FILE>C:\Users\birdlabs\Documents\Atmel Studio\7.0\ym2612\ym2612\main.asm</FILE><LINE>298</LINE></i1>
+  <SPI_STC_vect><FILE>C:\Users\birdlabs\Documents\Atmel Studio\7.0\ym2612\ym2612\main.asm</FILE><LINE>300</LINE></SPI_STC_vect>
+  <v0><FILE>C:\Users\birdlabs\Documents\Atmel Studio\7.0\ym2612\ym2612\main.asm</FILE><LINE>308</LINE></v0>
+  <v1><FILE>C:\Users\birdlabs\Documents\Atmel Studio\7.0\ym2612\ym2612\main.asm</FILE><LINE>312</LINE></v1>
+ </LABELS>
+</ASSEMBLER_INFO>
