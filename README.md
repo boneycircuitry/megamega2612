@@ -12,15 +12,14 @@ a 16x2 HD44780 LCD, and MIDI in by way of a 6N138 optocoupler, which received by
 
 the programs for both ATmegas are handled entirely by interrupts with no polling whatsoever.
 
-inspiration for YM2612 code came from here:
-https://github.com/Ryan-Marchildon/ym2612-arduino-test
-and here:
-https://github.com/AidanHockey5/MegaMIDI
+inspiration for YM2612 code came from here: https://github.com/Ryan-Marchildon/ym2612-arduino-test
 
-inspiration for the MIDI code came from here (i can no longer find the github repository for this):
+and here: https://github.com/AidanHockey5/MegaMIDI
+
+inspiration for the MIDI code came from here (i can no longer find the github repository for this): 
 https://youtu.be/Zq1o3Phj4Wo?si=TP7ds2Czc5PGOIf0
 
-the program uses Chaz Wilmot and Tristan Pawlenty's adaptation of Joerg Wensch's LCD library:
+the program uses Chaz Wilmot and Tristan Pawlenty's adaptation of Joerg Wensch's LCD library: 
 https://github.com/chazwilmot/LCD_library
 
 sorry if i am forgetting anyone!
