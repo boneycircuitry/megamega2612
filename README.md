@@ -2,13 +2,13 @@ welcome to the megamega2612 project
 
 this was made for ECE:3360 Embedded Systems at the University of Iowa in Spring 2024
 
-the project uses 2 ATmega328p ICs to turn a YM2612 FM synthesis IC into a 6-channel polyphonic synthesizer,
-one of which is the main controller, connected to all peripheral devices except the YM2612 itself,
-and one peripheral uC that receives data to be written to the YM2612 via SPI, sets the YM's control pins, 
-and writes the data to the appropriate registers.
+the project uses 2 ATmega328p ICs to turn a YM2612 FM synthesis IC into a 6-channel polyphonic synthesizer. 
+one of these ATmegas is the main controller, connected to all peripheral devices except the YM2612 itself,
+and the other is a peripheral uC that receives data to be written to the YM2612 via SPI, sets the YM's control pins, 
+and writes the data to the appropriate registers using 8 data lines and 7 control lines including an OCR pin for the YM's clock.
 
 its interface consists of a rotary encoder, 2 push buttons (one on the encoder, but that is not essential for functioning),
-a 16x2 HD44780 LCD, and MIDI in by way of a 6N138 optocoupler, which received by the main controller's RX pin.
+a 16x2 HD44780 LCD, and MIDI in received by the main controller's RX pin by way of a 6N138 optocoupler.
 
 the programs for both ATmegas are handled entirely by interrupts with no polling whatsoever.
 
