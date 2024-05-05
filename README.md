@@ -1,4 +1,4 @@
-Welcome to the megamega2612 project
+Welcome to the megamega2612 project!
 
 This was made for ECE:3360 Embedded Systems at the University of Iowa in Spring 2024
 
