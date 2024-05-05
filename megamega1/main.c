@@ -201,11 +201,11 @@ void changeValue(); // update value of parameter on LCD and in YM2612
 
 void note(uint8_t noteIn, uint8_t velocity, bool on); // schedule notes to be turned off/on
 
-ISR(PCINT2_vect); // pin change ISR for interface (encoder/buttons - D1-D4)
-
 ISR(USART_RX_vect); // midi data received
 
 ISR(TIMER1_OVF_vect); // turn on/off scheduled notes
+
+ISR(PCINT2_vect); // pin change ISR for interface (encoder/buttons - D1-D4)
 
 int main(void) {	
 	stdout = &lcd_str; // printf prints to LCD
@@ -226,12 +226,12 @@ int main(void) {
 	SPCR = (1<<SPE) | (1<<MSTR) | (1<<SPR1); // SPI enable, master mode, divide clock by 64
 	
 	// initialize USART for MIDI
-	UCSR0B = (1 << RXCIE0) | (1 << RXEN0) | (0 << UCSZ02); // enable RX interrupt, enable interrupt (??????)
+	UCSR0B = (1 << RXCIE0) | (1 << RXEN0) | (0 << UCSZ02); // enable RX interrupt, enable RX
 	UCSR0C = (1 << UCSZ01) | (1 << UCSZ00); // 8 bits per character
 	UBRR0 = (F_CPU / 16 / MIDI_BAUD) - 1; // midi baud rate 31250
 	
 	// enable pin change interrupts for D1 - D4 (PCINT17 - 20)
-	PCMSK2 = (1<<PCINT17) | (1<<PCINT19) | (1<<PCINT20) | (1<<PCINT18);
+	PCMSK2 = (1<<PCINT17) | (1<<PCINT18) | (1<<PCINT19) | (1<<PCINT20);
 	PCICR = (1<<PCIE2); // enable pin change interrupts for PORTD
 	
 	PORTC |= (1<<SS); // SS pin high by default, low when transmitting data
@@ -554,11 +554,11 @@ int am0, int am1, int am2, int am3){
 void preset(){
 	switch(ym.patchNum){
 		case 0:
-		// format patch name for printing
-		sprintf(ym.patchName,"%s","ding dong piano");
+			// format patch name for printing
+			sprintf(ym.patchName,"%s","ding dong piano");
 		
-		// params are grouped according to whether they're global, or groups of 4 for operator
-		// i.e. alg,fb,lfo,vib,trem, mult[0-3], det[0-3], tl[0-3], atk[0-3], dec[0-3], sl[0-3], sr[0-3], rel[0-3], rs[0-3], eg[0-3], am[0-3]
+			// params are grouped according to whether they're global, or groups of 4 for operator
+			// i.e. alg,fb,lfo,vib,trem, mult[0-3], det[0-3], tl[0-3], atk[0-3], dec[0-3], sl[0-3], sr[0-3], rel[0-3], rs[0-3], eg[0-3], am[0-3]
 			changeAllParams(7,0,0,0,0, 10,8,4,2, -3,1,3,0, 63,117,117,127, 0,0,0,0, 16,16,16,15, 0,0,0,0, 29,29,29,29, 1,1,1,1, 1,2,1,2, 0,0,0,0, 0,0,0,0);
 			break;
 		case 1:
@@ -855,21 +855,21 @@ void changeValue(){
 	}
 }
 
-// schedule notes to be turned off or on, format data to be written to YM2612 registers A0c(freq low) and A4 (freq high + block (octave))
+// schedule notes to be turned off or on, format data to be written to YM2612 registers A0 (freq low) and A4 (freq high + block (octave))
 void note(uint8_t noteIn, uint8_t velocity, bool on){
 	cli();
 	
 	uint16_t noteOut;
 	int oct;
 	
-	oct = noteIn / 12 - 1; // middle C is octave 5 - make it octave 4
+	oct = noteIn / 12 - 1; // middle C is octave 5 -> make it octave 4
 	
 	minMaxValue(&oct, 0, 7); // 'block' can be 0-7 (8 octaves)
 	
 	// note frequencies within 1 octave
 	uint16_t notes[] = {311, 329, 349, 370, 392, 415, 440, 466, 493, 523, 554, 586};
 	
-	noteOut = notes[noteIn % 12]; // ex. 63 is D# - 63 % 12 = 3 - freq will be 370
+	noteOut = notes[noteIn % 12]; // ex. 63 is D# -> 63 % 12 = 3 -> notes[3] = 370 (Hz)
 	
 	uint8_t chanGrp; // flag to be written for channels
 		
@@ -883,8 +883,10 @@ void note(uint8_t noteIn, uint8_t velocity, bool on){
 				// format pitch to be written to YM2612
 				ym.freq[i][0] = (oct<<3) | ((noteOut & 0x0700)>>8); // top 3 bits of freq, next 3 bits are octave
 				ym.freq[i][1] = (noteOut & 0x00FF); // lower 8 bits of freq
+				
 				ym.notesOn[i][0] = noteIn; 
 				ym.notesOn[i][1] = 1; // schedule note to be turned on
+				
 				break; // only loop until finding first available channel
 				
 			// if it is already on but the note is the same value, turn channel off and then on again
@@ -912,79 +914,6 @@ void note(uint8_t noteIn, uint8_t velocity, bool on){
 	}
 	
 	sei();
-}
-
-// everything related to encoder and buttons happens here
-ISR(PCINT2_vect){	
-	glb.sreg = SREG;
-	cli();
-	
-	// get current pin values
-	uint8_t RPG[] = {(PIND & (1<<ENC_A))>>ENC_A, (PIND & (1<<ENC_B))>>ENC_B}; // current pin values for individual encoder pins
-	uint8_t RPGpin = PIND & ((1<<ENC_A) | (1<<ENC_B)); // current overall encoder status
-	
-	uint8_t BTN_L_status = (PIND & (1<<BTN_L))>>BTN_L; // current value for left button pin
-	uint8_t BTN_R_status = (PIND & (1<<BTN_R))>>BTN_R; // right button pin
-
-	
-	// if the thing that caused the interrupt was either button going low, cleared to change group
-	if(!BTN_L_status || !BTN_R_status) glb.chgGrp = true;
-	
-	if(glb.RPGpinOld == RPGpin){
-		// if interrupt was caused by button change and not RPG:
-		if(glb.chgGrp){
-			if(BTN_L_status && !glb.BTN_L_old){ // button has just been released
-				--ym.group;
-				changeGroup();
-			}
-			if(BTN_R_status && !glb.BTN_R_old){
-				++ym.group;
-				changeGroup();
-			}
-		}
-		// store pin values
-		glb.BTN_L_old = BTN_L_status;
-		glb.BTN_R_old = BTN_R_status;
-		
-	} else {
-		glb.chgGrp = false; // if the interrupt was caused by a change in the RPG (while a button was held), if a button is released the group won't be changed
-		if(RPG[1] && !RPG[0]){ // limit number of cases so that value only changes once per turn (as opposed to 4 times)
-			//if (!RPG[0] && (glb.RPGold[1] == RPG[0]) && (glb.RPGold[0] != RPG[1])){
-			if ((glb.RPGold[1] == RPG[0]) && (glb.RPGold[0] != RPG[1])){ // encoder turned counterclockwise
-				if(!BTN_L_status){ // if encoder button is held
-					--ym.current; // change currently selected parameter (decrement)
-					changeCurrent();
-				} else if(!BTN_R_status){ // other button is held
-					--ym.op; // change currently selected operator
-					changeCurrent();
-				} else if(BTN_L_status && BTN_R_status){ // neither button is held
-					--*ym.value; // change value of currently selected parameter
-					changeValue();
-				}
-			//} else if (!RPG[0] && (glb.RPGold[0] == RPG[1]) && (glb.RPGold[1] != RPG[0])){
-			} else if ((glb.RPGold[0] == RPG[1]) && (glb.RPGold[1] != RPG[0])){ // encoder turned clockwise
-				if(!BTN_L_status){
-					++ym.current;
-					changeCurrent();
-				} else if(!BTN_R_status){
-					++ym.op;
-					changeCurrent();
-				} else if(BTN_L_status && BTN_R_status){
-					++*ym.value;
-					changeValue();
-				}
-			}
-		}
-		// set stored values for all interface pins
-		glb.RPGold[0] = RPG[0];
-		glb.RPGold[1] = RPG[1];
-		glb.RPGpinOld = RPGpin;
-		
-		glb.BTN_L_old = BTN_L_status;
-		glb.BTN_R_old = BTN_R_status;
-	}
-	
-	SREG = glb.sreg;
 }
 
 // receive MIDI messages and translate (note on, note off, pitch, modulation, etc)
@@ -1109,6 +1038,7 @@ ISR(TIMER1_OVF_vect){
 		
 		// turn notes on 
 		if(ym.notesOn[i][1] && !ym.notesOn[i][2]){ // note is currently off but should be on
+			
 			/* FOR VELOCITY - not implemented yet
 			for(int o = 0; o < 4; o++){
 				sendreg(chanGrp, 0x40+n%3+opOffset[o], 127 - ym.vel[n]);
@@ -1131,11 +1061,82 @@ ISR(TIMER1_OVF_vect){
 			// turn note off
 			sendreg(0, 0x28, 0x00+chan[i]);
 			
-			// clear note number, set both flags to 0 to indicate that note is off
+			// clear channel's note number, set both flags to 0 to indicate that note is off
 			ym.notesOn[i][0] = 0;
 			ym.notesOn[i][1] = 0;
 			ym.notesOn[i][2] = 0;
 		}
+	}
+	
+	SREG = glb.sreg;
+}
+
+// everything related to encoder and buttons happens here
+ISR(PCINT2_vect){	
+	glb.sreg = SREG;
+	cli();
+	
+	// get current pin values
+	uint8_t RPG[] = {(PIND & (1<<ENC_A))>>ENC_A, (PIND & (1<<ENC_B))>>ENC_B}; // current pin values for individual encoder pins
+	uint8_t RPGpin = PIND & ((1<<ENC_A) | (1<<ENC_B)); // current overall encoder status
+	
+	uint8_t BTN_L_status = (PIND & (1<<BTN_L))>>BTN_L; // current value for left button pin
+	uint8_t BTN_R_status = (PIND & (1<<BTN_R))>>BTN_R; // right button pin
+
+	
+	// if the thing that caused the interrupt was either button going low, cleared to change group
+	if(!BTN_L_status || !BTN_R_status) glb.chgGrp = true;
+	
+	if(glb.RPGpinOld == RPGpin){
+		// if interrupt was caused by button change and not RPG:
+		if(glb.chgGrp){
+			if(BTN_L_status && !glb.BTN_L_old){ // button has just been released
+				--ym.group;
+				changeGroup();
+			}
+			if(BTN_R_status && !glb.BTN_R_old){
+				++ym.group;
+				changeGroup();
+			}
+		}
+		// store pin values
+		glb.BTN_L_old = BTN_L_status;
+		glb.BTN_R_old = BTN_R_status;
+		
+	} else {
+		glb.chgGrp = false; // if the interrupt was caused by a change in the RPG (while a button was held), if a button is released the group won't be changed
+		if(RPG[1] && !RPG[0]){ // limit number of cases so that value only changes once per turn (as opposed to 4 times)
+			if ((glb.RPGold[1] == RPG[0]) && (glb.RPGold[0] != RPG[1])){ // encoder turned counterclockwise
+				if(!BTN_L_status){ // if encoder button is held
+					--ym.current; // change currently selected parameter (decrement)
+					changeCurrent();
+				} else if(!BTN_R_status){ // other button is held
+					--ym.op; // change currently selected operator
+					changeCurrent();
+				} else if(BTN_L_status && BTN_R_status){ // neither button is held
+					--*ym.value; // change value of currently selected parameter
+					changeValue();
+				}
+			} else if ((glb.RPGold[0] == RPG[1]) && (glb.RPGold[1] != RPG[0])){ // encoder turned clockwise
+				if(!BTN_L_status){
+					++ym.current;
+					changeCurrent();
+				} else if(!BTN_R_status){
+					++ym.op;
+					changeCurrent();
+				} else if(BTN_L_status && BTN_R_status){
+					++*ym.value;
+					changeValue();
+				}
+			}
+		}
+		// set stored values for all interface pins
+		glb.RPGold[0] = RPG[0];
+		glb.RPGold[1] = RPG[1];
+		glb.RPGpinOld = RPGpin;
+		
+		glb.BTN_L_old = BTN_L_status;
+		glb.BTN_R_old = BTN_R_status;
 	}
 	
 	SREG = glb.sreg;
