@@ -24,7 +24,7 @@ On the schematic:
 - i used 16MHz ceramic resonators for the ATmega's clocks, but 16MHz xtals with 22pF caps could be used instead
 - the LCD's contrast trimmer is 1k
 - i used a 100k dual pot for volume but most values are probably fine
-- IMPORTANT: audio is routed through a TDA1308 prefabricated headphone preamp module like this one between the volume pot and output jack:
+- IMPORTANT: audio is routed through a TDA1308 prefabricated headphone preamp module between the volume pot and output jack like this one:
   https://ifuturetech.org/product/tda1308-stereo-earphone-audio-driver-module/
 - also not pictured: a LM7805 to power the system, with 0.1uF capacitors
 
