@@ -1,4 +1,5 @@
 welcome to the megamega2612 project
+
 this was made for ECE:3360 Embedded Systems at the University of Iowa in Spring 2024
 
 the project uses 2 ATmega328p ICs to turn a YM2612 FM synthesis IC into a 6-channel polyphonic synthesizer,
