@@ -12,6 +12,8 @@ a 16x2 HD44780 LCD, and MIDI in received by the main controller's RX pin by way 
 
 The programs for both ATmegas are handled entirely by interrupts with no polling whatsoever.
 
+I included the original code I wrote for the YM2612 controller in assembly, but it doesn't work.  Any input as to what I did wrong would be appreciated.
+
 If anyone implements this, you might find some noise on the output when SPI data is being sent.  If you're able to resolve this please let me know!
 
 On the schematic:
