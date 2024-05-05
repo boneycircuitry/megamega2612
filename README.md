@@ -26,7 +26,7 @@ on the schematic:
 - i used a 100k dual pot for volume but most values are probably fine
 - IMPORTANT: audio is routed through a TDA1308 prefabricated headphone preamp module like this one between the volume pot and output jack:
   https://ifuturetech.org/product/tda1308-stereo-earphone-audio-driver-module/
-- i incorporated a LM7805 to power the system
+- also not pictured: a LM7805 to power the system, with 0.1uF capacitors
 
 acknowledgements:
 - inspiration for YM2612 code came from here: https://github.com/Ryan-Marchildon/ym2612-arduino-test
