@@ -29,6 +29,7 @@ On the schematic:
 - also not pictured: a LM7805 to power the system, with 0.1uF capacitors
 
 Acknowledgements:
+- https://www.plutiedev.com/ym2612-registers is my YM2612 register bible
 - inspiration for YM2612 code came from here: https://github.com/Ryan-Marchildon/ym2612-arduino-test
 - and here: https://github.com/AidanHockey5/MegaMIDI
 - inspiration for the MIDI code came from here (i can no longer find the github repository for this): 
