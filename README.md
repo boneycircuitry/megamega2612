@@ -12,12 +12,15 @@ a 16x2 HD44780 LCD, and MIDI in by way of a 6N138 optocoupler, which received by
 
 the programs for both ATmegas are handled entirely by interrupts with no polling whatsoever.
 
+if anyone implements this, you might find some noise on the output when SPI data is being sent.  if you're able to resolve this please let me know!
+
 on the schematic:
 
 - most resistors are 10k except for the following:
-  - 470R: at LCD anode pin, across 6N138's pins 8 and 6
+  - 470R: at LCD anode pin and across 6N138's pins 8 and 6
   - 220R: at YM2612 audio output and MIDI input
 - all electrolytic capacitors are 10uF, all others are 0.1uF
+- the diode across the 6N138's pins 2 & 3 is a 1N4148
 - i used 16MHz ceramic resonators for the ATmega's clocks, but 16MHz xtals with 22pF caps could be used instead
 - the LCD's contrast trimmer is 1k
 - i used a 100k dual pot for volume but most values are probably fine
@@ -25,14 +28,12 @@ on the schematic:
   https://ifuturetech.org/product/tda1308-stereo-earphone-audio-driver-module/
 - i incorporated a LM7805 to power the system
 
-inspiration for YM2612 code came from here: https://github.com/Ryan-Marchildon/ym2612-arduino-test
-
-and here: https://github.com/AidanHockey5/MegaMIDI
-
-inspiration for the MIDI code came from here (i can no longer find the github repository for this): 
+acknowledgements:
+- inspiration for YM2612 code came from here: https://github.com/Ryan-Marchildon/ym2612-arduino-test
+- and here: https://github.com/AidanHockey5/MegaMIDI
+- inspiration for the MIDI code came from here (i can no longer find the github repository for this): 
 https://youtu.be/Zq1o3Phj4Wo?si=TP7ds2Czc5PGOIf0
-
-the program uses Chaz Wilmot and Tristan Pawlenty's adaptation of Joerg Wensch's LCD library: 
+- the program uses Chaz Wilmot and Tristan Pawlenty's adaptation of Joerg Wensch's LCD library: 
 https://github.com/chazwilmot/LCD_library
 
 sorry if i am forgetting anyone!
