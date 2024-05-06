@@ -629,6 +629,10 @@ void preset(){
 			sprintf(ym.patchName,"%s","ugly bell");
 			changeAllParams(6,4,0,0,0, 10,1,1,1, 0,0,0,0, 120,120,120,127, 0,0,0,0, 24,19,25,13, 0,0,0,0, 31,31,31,31, 8,8,6,9, 1,1,1,1, 0,0,0,0, 0,0,0,0);
 			break;
+		case 18:
+			sprintf(ym.patchName,"%s","moving electric");
+			changeAllParams(2,4,1,0,1, 2,6,8,4, -3,0,3,0, 120,111,105,125, 14,23,0,14, 24,23,22,31, 0,0,8,12, 24,23,27,31, 9,8,8,9, 1,2,2,0, 0,0,7,0, 0,1,1,0);
+			break;
 	}
 }
 
@@ -758,7 +762,7 @@ void changeValue(){
 	
 	// group 0
 	if(val == &ym.patchNum){
-		minMaxValue(&ym.patchNum,0,17);
+		minMaxValue(&ym.patchNum,0,18);
 		preset();
 		printToLCD("preset patch",7);
 		
