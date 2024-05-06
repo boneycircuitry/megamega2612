@@ -13,7 +13,7 @@
  * which is connected to the second ATmega328p, which receives the data over SPI
  * 
  * the physical interface consists of a rotary encoder with an attached push button,
- * a second push button, an HD44780 16x2 LCD screen, a MIDI jack, connected
+ * a second push button, an HD44780 16x2 LCD screen, a MIDI jack that is connected
  * to the ATmega328p's USART RX pin through a 6N138 optocoupler, and a second
  * ATmega328p, connected via SPI
  * 
