@@ -5,20 +5,19 @@
  * Created: 4/10/2024 4:00:26 PM
  * Author : Izaak Thompson (Boney Circuitry)
  *
- * this program is used in tandem with ym2612c to control the YM2612 for the
+ * this program is used in tandem with ym2612c.c to control the YM2612 for the
  * megamega2612 project
  *
  * the program uses SPI, pin change interrupts, USART RX interrupts, and timer1
  * overflow interrupts to change parameters and turn notes on in a YM2612 IC,
- * which is connected to the second ATmega328p, which receives the data over SPI
+ * which is controlled by the second ATmega328p, which receives the data over SPI
+ * from the main controller
  * 
  * the physical interface consists of a rotary encoder with an attached push button,
- * a second push button, an HD44780 16x2 LCD screen, a MIDI jack that is connected
- * to the ATmega328p's USART RX pin through a 6N138 optocoupler, and a second
- * ATmega328p, connected via SPI
- * 
- * when input is received through the encoder and buttons (via PCINT on D1-D4),
- * the screen is updated and data is sent to the YM2612 over SPI
+ * a second push button, an HD44780 16x2 LCD screen, a MIDI jack which is connected
+ * to the ATmega328p's USART RX pin through a 6N138 optocoupler, a second
+ * ATmega328p, connected via SPI, and of course the YM2612, which is not directly
+ * connected to the ATmega for which this program is written
  *
  * parameters are arranged into 4 groups:
  *   group 1: preset patches and (in the future) extra options such as routing
@@ -27,26 +26,34 @@
  *   group 3: envelope parameters*
  *   group 4: LFO parameters: frequency, vibrato, amplitude modulation sensitivity,
  * AM on/off*
+ *
+ * *per operator parameters
+ *
+ * when input is received through the encoder and buttons (via PCINT on D1-D4),
+ * the screen is updated and data is sent to the YM2612 over SPI
  * 
  * parameters are accessed and modified as follows, handled in the PCINT2 ISR:
- *  - to cycle through groups, press and RELEASE encoder button (move back) or standalone button (move forward)
- *  - to cycle through parameters within groups, HOLD AND TURN the ENCODER button
- *  - to change OPERATOR (4 available), HOLD the STANDALONE button and TURN the encoder
+ *  - to cycle through groups, press and RELEASE encoder (LEFT) button (move back) or standalone (RIGHT) button (move forward)
+ *  - to cycle through parameters within groups, HOLD AND TURN the LEFT button
+ *  - to change OPERATOR (4 available), HOLD the RIGHT button and TURN the encoder
  *  - to change the value of the currently selected parameter, just TURN the encoder left (decrement) or right (increment)
  * 
  * MIDI data handled by the program consists either of note on/off data or modulation data
- * (mod wheel, aftertouch, pitch bend).  routing of MIDI data is handled by the USART_RX ISR.
+ * (mod wheel, aftertouch, pitch bend, sustain).  routing of MIDI data is handled by the USART_RX ISR.
  * for note on/off MIDI data, the note() function is called, which does the following:
  *  - note on: find a channel that is not "on" or "scheduled" to be turned on, translate the incoming note
- * to a frequency and octave to be sent to the YM2612, "schedule" the selected channel to be turned on
- *  - note off: find a channel that matches the note that is supposed to be turned off, schedule it to be turned off
+ * to a frequency and octave to be sent to the YM2612, "schedule" the selected channel to be turned on, and
+ * assign the note on velocity to an array.  the velocity assigned can not be lower than minVel, which is defined by the user.
+ *  - note off: find a channel that matches the note that is supposed to be turned off; schedule it to be turned off.
+ * if MIDI sustain data comes in while notes are on, notes will be scheduled to be turned off, but won't be until sustain is released
  *
  * the TIMER1_OVF ISR is enabled so that when timer1 overflows, channels that are "scheduled" to be
- * turned off or on are made to be so, and their respective flags are changed to reflect that fact
+ * turned off or on are made to be so, and their respective flags are changed to reflect that fact.
+ * this function also handles the velocity by assigning a weighted average between incoming velocity
+ * and the 'total level' of each operator as defined by the preset patch.  the weight is determined
+ * by the global variable velSens
  *
  * possible future developments are listed within the main while loop in lieu of any polling or other such business
- *
- * *per operator parameters
  */  
 /////////////////////////////////////////////////////////////////////////////
 
@@ -87,18 +94,86 @@ FILE lcd_str = FDEV_SETUP_STREAM(lcd_putchar, NULL, _FDEV_SETUP_WRITE); // for L
 #define ENC_B	PD4
 
 // for future use - an indicator that a note is being pressed
-//#define LED PB0 
+#define LED PB0 
 
 // SPI pins
 #define MOSI PB3
 #define MISO PB4
 #define SCK	 PB5
 #define SS   PC4 // SS output is PC4 for convenience
+	
+#define MAX_PRESET 20
+	
+////////////// STRINGS USED BY THE LCD //////////////
+
+const char* patchNames[] = {
+	"ding dong piano",
+	"toxic sludge",
+	"wooden steel",
+	"steel drum pad",
+	"(un)naturhythm",
+	"reedy ripper",
+	"lately who?",
+	"tuned bounce",
+	"morph metal",
+	"get(s) nasty",
+	"flarp wobble",
+	"pan flute",
+	"deceptive bass",
+	"jagged EP",
+	"all consuming",
+	"one operator",
+	"squelchy",
+	"ugly bell",
+	"moving electric",
+	"wurly slow dance",
+	"ambient banjo"
+};
+
+const char* params[4][7] = {
+	{
+		"preset patch","velocity sens","min velocity","polyphony"
+	},{
+		"algorithm","feedback","freq mult","detune","level"
+	},{
+		"attack","decay","sust level","sust rate","release","rate scale","SSGEG"
+	},{
+		"LFO frequency","vibrato","AM sensitivity","AM"
+	}
+};
+
+const char* algorithms[] = {
+	"1 > 2 > 3 > 4~", "1 & 2 > 3 > 4~",
+	"(2 > 3) & 1 > 4~", "(1 > 2) & 3 > 4~",
+	"1 > 2~, 3 > 4~", "1 > (2 & 3 & 4)~",
+	"1 > 3~, 2~, 4~", "1~, 2~, 3~, 4~"
+};
+
+const char* egTypes[] = {
+	"OFF","forward loop", "one shot + low",
+	"forward+rev loop", "one shot + high",
+	"reverse loop", "reverse + high",
+	"rev+forward loop", "reverse + low"
+};
+
+const char* lfoFreqs[] = {
+	"OFF", "3.82 Hz", "5.33 Hz", "5.77 Hz", "6.11 Hz",
+	"6.60 Hz", "9.23 Hz", "46.11 Hz", "69.22 Hz"
+};
+
+const char* onOff[] = { "OFF", "ON" };
+	
+const char* playModes[] = { "polyphonic","mono retrig","mono legato" };
+	
+/////////////////////////////////////////////////////
 
 // idiosyncrasies of writing to the YM2612's registers
 // see https://www.plutiedev.com/ym2612-registers for more info
 const uint8_t chan[] = {0, 1, 2, 4, 5, 6};
 const uint8_t opOffset[] = {0, 0x08, 0x04, 0x0C};
+const uint8_t globalRegs[] = {0x22, 0x28};
+const uint8_t channelRegs[] = {0xA0, 0xA4, 0xB0, 0xB4};
+const uint8_t opRegs[] = {0x30, 0x40, 0x50, 0x60, 0x70, 0x80, 0x90};
 	
 // global variables
 struct GlobalVars {
@@ -130,18 +205,23 @@ struct Parameters {
 	
 	// pitch etc (updated from USART_RX ISR)
 	volatile uint8_t freq[6][2]; // freqs to be loaded into high (A4) and low (A0) registers for all 6 channels
-	volatile uint8_t vel[6]; // not currently being used
 	volatile uint8_t notesOn[6][3]; // note value for each channel, whether it *should* be on, and whether it *is* on
+	volatile int timeOn[6]; // count how long each note has been held, turn off note that has been held the longest when reaching 6 notes
+	volatile int vel[6];
+	bool sustain;
 	
 	// group 0
 	int patchNum;
-	char patchName[17];
-	/* for later
+	char* patchName;
+	int velSens;
+	int minVel;
+	int polyphony;
+	
+	// for later
 	int* modWheel;
 	int* aftertouch;
 	int modIndex;
 	int atIndex;
-	*/
 	
 	// group 1
 	int algorithm;
@@ -166,8 +246,6 @@ struct Parameters {
 	int amOn[4];
 };	
 
-struct GlobalVars glb;
-
 struct Parameters ym;
 
 unsigned char SPIsend(unsigned char data); // send SPI data
@@ -178,7 +256,8 @@ void sendreg(uint8_t flag, uint8_t reg, uint8_t data); // send YM2612 data over 
 void writeToYM(uint8_t op, uint8_t val1, uint8_t val2, uint8_t baseReg, uint8_t bitShift1, uint8_t bitShift2,
 bool multiOp, bool multiChannel, uint8_t options, uint8_t subValue1, uint8_t subValue2);
 
-void printToLCD(char param[17],int options); // update LCD
+//void printToLCD(char param[17],int options); // update LCD
+void printToLCD(int options); // update LCD
 
 void minMaxValue(int* var, int min, int max); // restrict passed parameter within min/max values
 
@@ -199,6 +278,8 @@ void changeCurrent(); // select parameter within groups
 
 void changeValue(); // update value of parameter on LCD and in YM2612
 
+int max(int val1, int val2);
+
 void note(uint8_t noteIn, uint8_t velocity, bool on); // schedule notes to be turned off/on
 
 ISR(USART_RX_vect); // midi data received
@@ -208,6 +289,7 @@ ISR(TIMER1_OVF_vect); // turn on/off scheduled notes
 ISR(PCINT2_vect); // pin change ISR for interface (encoder/buttons - D1-D4)
 
 int main(void) {	
+	
 	stdout = &lcd_str; // printf prints to LCD
 
 	lcd_init(); // initialize lcd
@@ -257,6 +339,11 @@ int main(void) {
 	ym.patchNum = 15; // "one operator" patch
 	ym.value = &ym.patchNum;
 	
+	ym.sustain = false;
+	
+	ym.velSens = 2;
+	ym.minVel = 50;
+	
 	// initialize MIDI buffer situation
 	glb.midiIndex = 0;
 	glb.msgStart = 0;
@@ -276,15 +363,14 @@ int main(void) {
 		/*
 		TODO:
 			- set up way to change parameter selection for mod wheel & AT
-			- name of param to be printed as global variable ???
-			- more patches
 			- midi channel
 			- random sounds
 			- turn off oldest note when playing new note (past 6 channels)
 			- dont play notes lower than lowest oct/higher than highest
 			- velocity!!
+				- CHANGE MIN VELOCITY
 			- monophonic mode (legato/retrig)
-			- drone mode
+				- part of patch
 			- MIDI in LED
 			- pitch bend?
 			- poly AT?
@@ -293,7 +379,6 @@ int main(void) {
 }
 
 ////////////////////////////// FUNCTIONS ///////////////////////////////////
-
 
 // transmit data over the SPI lines
 unsigned char SPIsend(unsigned char data){
@@ -391,34 +476,11 @@ bool multiOp, bool multiChannel, uint8_t options, uint8_t subValue1, uint8_t sub
 }
 
 // format and print text to LCD based on currently selected parameter
-void printToLCD(char param[17],int options){
+void printToLCD(int options){
 	int val = *ym.value;
 	
 	uint8_t op = ym.op;
-	
-	// algorithm types
-	char algorithms[8][17] = {	
-		"1 > 2 > 3 > 4~", "1 & 2 > 3 > 4~",
-		"(2 > 3) & 1 > 4~", "(1 > 2) & 3 > 4~",
-		"1 > 2~, 3 > 4~", "1 > (2 & 3 & 4)~",
-		"1 > 3~, 2~, 4~", "1~, 2~, 3~, 4~" 
-	};
-	
-	char onOff[2][17] = {"OFF","ON"}; // whether param is off or on
-	
-	// lfo freqs are displayed as strings
-	char lfoFreqs[9][17] = {	
-		"OFF", "3.82 Hz", "5.33 Hz", "5.77 Hz", "6.11 Hz", 
-		"6.60 Hz", "9.23 Hz", "46.11 Hz", "69.22 Hz" 
-	};
-	
-	// SSGEG types
-	char egTypes[9][17] = {	
-		"OFF","forward loop", "one shot + low",
-		"forward+rev loop", "one shot + high",
-		"reverse loop", "reverse + high",
-		"rev+forward loop", "reverse + low" 
-	};
+	const char* param = params[ym.group][ym.current];
 	
 	home(); // line 1, spot 1
 	printf("                \n                "); // clear screen
@@ -451,12 +513,15 @@ void printToLCD(char param[17],int options){
 			printf("op %d %s:\n%s",op+1,param,egTypes[val]);
 			break;
 		case 7: // preset patch
-			printf("%s:\n%s",param,ym.patchName);
+			printf("%s:\n%s",param,patchNames[val]);
+			break;
+		case 8: // polyphony
+			printf("%s:\n%s",param,playModes[val]);
+			break;
+		case 9: // anything just on/off (non-operator)
+			printf("%s:\n%s",param,onOff[val]);
 			break;
 	}
-	
-	// for some reason i can't seem to add extra cases - it causes weird malfunctions in the synth that cause the display not to work and then it crashes
-	// any insight into why this might be happening would be helpful
 }
 
 // restrict passed value within min/max values
@@ -471,6 +536,7 @@ void minMaxValue(int* var, int min, int max){
 }
 
 // change all parameters at once (for preset()) within program as well as writing to YM2612
+// TODO: include polyphony in params
 void changeAllParams(int alg, int fb, int lfo, int vib, int trem,
 int mult0, int  mult1, int mult2, int mult3, int det0, int det1, int det2, int det3,
 int tl0, int tl1, int tl2, int tl3, int atk0, int atk1, int atk2, int atk3,
@@ -551,89 +617,75 @@ int am0, int am1, int am2, int am3){
 }
 
 // for each preset patch, format name to be printed and change values of params, both within program and within YM2612
-void preset(){
+void preset(){		
 	switch(ym.patchNum){
-		case 0:
-			// format patch name for printing
-			sprintf(ym.patchName,"%s","ding dong piano");
-		
+		case 0: // ding dong piano
 			// params are grouped according to whether they're global, or groups of 4 for operator
 			// i.e. alg,fb,lfo,vib,trem, mult[0-3], det[0-3], tl[0-3], atk[0-3], dec[0-3], sl[0-3], sr[0-3], rel[0-3], rs[0-3], eg[0-3], am[0-3]
-			changeAllParams(7,0,0,0,0, 10,8,4,2, -3,1,3,0, 63,117,117,127, 0,0,0,0, 16,16,16,15, 0,0,0,0, 29,29,29,29, 1,1,1,1, 1,2,1,2, 0,0,0,0, 0,0,0,0);
+			changeAllParams(7,0,0,0,0, 10,8,4,2, -3,1,3,0, 63,117,117,127, 0,0,0,0, 23,23,23,23, 0,0,0,0, 29,29,29,29, 1,1,1,1, 1,2,1,2, 0,0,0,0, 0,0,0,0);
 			break;
-		case 1:
-			sprintf(ym.patchName,"%s","toxic sludge");
+		case 1: // toxic sludge
 			changeAllParams(3,4,2,4,0, 1,10,2,6, 0,0,0,0, 127,127,127,127, 0,2,12,7, 4,0,23,31, 14,5,0,13, 29,16,0,29, 7,5,8,7, 1,1,1,1, 0,0,0,0, 0,0,0,0);
 			break;
-		case 2:
-			sprintf(ym.patchName,"%s","wooden steel");
+		case 2: // wooden steel
 			changeAllParams(4,0,0,0,0, 10,8,4,2, -3,1,3,0, 27,112,112,127, 0,0,9,0, 16,16,16,21, 0,0,0,0, 29,29,29,29, 7,7,7,10, 1,2,1,2, 0,0,0,0, 0,0,0,0);
 			break;
-		case 3:
-			sprintf(ym.patchName,"%s","steel drum pad");
+		case 3: // steel drum pad
 			changeAllParams(5,3,3,0,3, 10,8,6,2, -3,1,3,0, 100,117,117,127, 10,26,25,0, 15,23,16,21, 13,7,12,0, 29,29,29,29, 9,1,19,11, 1,2,1,2, 0,0,0,0, 0,0,1,0);
 			break;
-		case 4:
-			sprintf(ym.patchName,"%s","(un)naturhythm");
+		case 4: // (un)naturhythm
 			changeAllParams(0,6,1,6,2, 10,8,1,2, -3,1,3,0, 88,112,112,127, 14,17,14,8, 18,19,19,22, 0,0,0,15, 29,29,29,29, 6,6,6,8, 2,1,2,1, 3,1,3,0, 1,1,1,0);
 			break;
-		case 5:
-			sprintf(ym.patchName,"%s","reedy ripper");
+		case 5: // reedy ripper
 			changeAllParams(2,5,0,0,0, 1,2,7,2, 3,-3,3,0, 126,97,106,127, 16,19,27,10, 27,22,26,21, 13,10,12,12, 31,31,31,27, 8,8,8,8, 1,1,1,1, 0,0,0,0, 0,0,0,0);
 			break;
-		case 6:
-			sprintf(ym.patchName,"%s","sawlike");
+		case 6: // lately who?
 			changeAllParams(7,4,0,0,0, 4,2,1,2, -2,2,1,-1, 124,117,120,127, 0,0,0,0, 16,23,31,12, 0,0,0,0, 29,29,0,18, 1,1,1,1, 1,1,1,1, 0,0,0,0, 0,0,0,0);
 			break;
-		case 7:
-			sprintf(ym.patchName,"%s","tuned bounce");
+		case 7: // tuned bounce
 			changeAllParams(3,0,0,0,0, 4,6,3,4, -3,2,3,-1, 111,79,118,127, 11,14,2,1, 15,20,10,17, 0,0,0,0, 29,29,29,29, 9,1,10,9, 2,2,1,2, 0,0,0,0, 0,0,0,0);
 			break;
-		case 8:
-			sprintf(ym.patchName,"%s","morph metal");
+		case 8: // morph metal
 			changeAllParams(3,4,0,0,0, 4,6,7,4, -1,2,3,-1, 111,117,118,127, 10,22,27,1, 15,20,17,21, 0,0,0,0, 29,29,31,29, 9,1,10,9, 2,2,1,2, 0,0,0,0, 0,0,0,0);
 			break;
-		case 9:
-			sprintf(ym.patchName,"%s","get(s) nasty");
+		case 9: // get(s) nasty
 			changeAllParams(3,5,0,0,0, 2,3,2,1, -2,-2,1,0, 116,118,119,127, 25,23,0,0, 25,27,19,24, 9,10,11,13, 31,31,31,31, 4,4,4,4, 1,1,1,1, 0,0,0,0, 0,0,0,0);
 			break;
-		case 10:
-			sprintf(ym.patchName,"%s","flarp wobble");
+		case 10: // flarp wobble
 			changeAllParams(5,5,2,5,2, 2,2,2,2, -1,1,3,0, 108,117,124,127, 8,6,12,7, 25,16,27,26, 4,0,0,0, 29,29,29,29, 4,1,3,2, 1,2,1,2, 0,0,0,0, 0,0,1,0);
 			break;
-		case 11:
-			sprintf(ym.patchName,"%s","pan flute");
+		case 11: // pan flute
 			changeAllParams(4,6,3,2,3, 4,5,4,4, -3,3,-2,0, 117,114,117,127, 3,22,29,18, 16,28,23,20, 0,0,0,0, 29,29,29,29, 7,7,8,7, 1,1,1,1, 0,0,0,0, 0,1,0,0);
 			break;
-		case 12:
-			sprintf(ym.patchName,"%s","deceptive bass");
+		case 12: // deceptive bass
 			changeAllParams(5,2,5,0,1, 2,2,10,6, 0,0,0,0, 127,104,118,127, 27,16,0,0, 25,19,19,21, 5,0,12,0, 31,31,31,31, 9,8,8,8, 2,2,1,1, 0,1,0,0, 0,0,1,0);
 			break;
-		case 13:
-			sprintf(ym.patchName,"%s","jagged EP");
+		case 13: // jagged EP
 			changeAllParams(6,5,2,0,2, 7,3,14,3, -3,-1,3,1, 113,120,125,118, 0,0,25,0, 22,23,22,23, 11,11,11,11, 31,31,31,31, 10,8,8,8, 1,1,1,1, 0,0,0,0, 0,0,1,0);
 			break;
-		case 14:
-			sprintf(ym.patchName,"%s","all consuming");
+		case 14: // all consuming
 			changeAllParams(5,5,3,0,2, 1,1,4,2, 0,0,0,0, 120,120,120,127, 27,28,20,24, 30,26,8,28, 0,3,0,10, 7,31,31,31, 9,7,7,7, 1,1,1,1, 0,0,1,0, 0,1,0,0);
 			break;
-		case 15:
-			sprintf(ym.patchName,"%s","one operator");
+		case 15: // one operator
 			changeAllParams(7,0,0,0,0, 2,2,2,2, 0,0,0,0, 0,0,0,127, 0,0,0,0, 31,31,31,31, 15,15,15,15, 31,31,31,31, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0);
 			break;
-		case 16:
-			sprintf(ym.patchName,"%s","squelchy");
+		case 16: // squelchy
 			changeAllParams(1,0,0,0,0, 10,8,4,2, -3,1,3,0, 27,112,112,127, 18,10,20,0, 16,0,29,25, 0,0,0,0, 29,29,29,29, 7,7,7,10, 1,2,1,2, 0,0,0,0, 0,0,0,0);
 			break;
-		case 17:
-			sprintf(ym.patchName,"%s","ugly bell");
+		case 17: // ugly bell
 			changeAllParams(6,4,0,0,0, 10,1,1,1, 0,0,0,0, 120,120,120,127, 0,0,0,0, 24,19,25,13, 0,0,0,0, 31,31,31,31, 8,8,6,9, 1,1,1,1, 0,0,0,0, 0,0,0,0);
 			break;
-		case 18:
-			sprintf(ym.patchName,"%s","moving electric");
+		case 18: // moving electric
 			changeAllParams(2,4,1,0,1, 2,6,8,4, -3,0,3,0, 120,111,105,125, 14,23,0,14, 24,23,22,31, 0,0,8,12, 24,23,27,31, 9,8,8,9, 1,2,2,0, 0,0,7,0, 0,1,1,0);
 			break;
+		case 19: // wurly slow dance
+			changeAllParams(5,5,1,0,2, 4,2,10,2, 2,-1,1,0, 113,114,109,127, 0,23,21,0, 23,24,26,27, 0,0,0,0, 31,31,31,31, 7,7,9,9, 0,2,1,0, 0,0,3,0, 0,1,0,0);
+			break;
+		case 20: // ambient banjo
+			changeAllParams(4,4,0,0,0, 4,3,7,2, 0,-1,1,0, 105,116,102,127, 18,0,14,0, 20,21,17,19, 7,0,0,0, 24,23,23,21, 9,9,9,9, 0,0,0,0, 8,0,0,0, 0,0,0,0);
+			break;
 	}
+	
 }
 
 // this and changeCurrent() are responsible for the structure of the interface
@@ -647,19 +699,23 @@ void changeGroup(){
 	switch(ym.group){
 		case 0:
 			ym.value = &ym.patchNum;
-			printToLCD("preset patch",7);
+//			printToLCD("preset patch",7);
+			printToLCD(7);
 			break;
 		case 1:
 			ym.value = &ym.algorithm;
-			printToLCD("algorithm",3);
+//			printToLCD("algorithm",3);
+			printToLCD(3);
 			break;
 		case 2:
 			ym.value = &ym.attack[ym.op];
-			printToLCD("attack",1);
+//			printToLCD("attack",1);
+			printToLCD(1);
 			break;
 		case 3:
 			ym.value = &ym.lfoFreq;
-			printToLCD("LFO freq",5);
+//			printToLCD("LFO frequency",5);
+			printToLCD(5);
 			break;
 	}
 }
@@ -673,31 +729,49 @@ void changeCurrent(){
 	uint8_t op = ym.op;
 	
 	if(ym.group == 0){ // more will be added here eventually
-		minMaxValue(&ym.current,0,0);
-		printToLCD("preset patch",7);
+		minMaxValue(&ym.current,0,3);
+		
+		switch(ym.current){
+			case 0:
+				ym.value = &ym.patchNum; // ??????
+				printToLCD(7);
+				break;
+			case 1:
+				ym.value = &ym.velSens;
+				printToLCD(0);
+				break;
+			case 2:
+				ym.value = &ym.minVel;
+				printToLCD(0);
+				break;
+			case 3:
+				ym.value = &ym.polyphony;
+				printToLCD(8);
+				break;
+		}
 		
 	} else if(ym.group == 1){
 		minMaxValue(&ym.current,0,4);
 		switch(ym.current){
 			case 0: // algorithm
 				ym.value = &ym.algorithm;
-				printToLCD("algorithm",3);
+				printToLCD(3);
 				break;
 			case 1: // feedback
 				ym.value = &ym.feedback;
-				printToLCD("feedback",0);
+				printToLCD(0);
 				break;
 			case 2: // multiple
 				ym.value = &ym.multiple[op];
-				printToLCD("freq mult",2);
+				printToLCD(2);
 				break;
 			case 3: // detune
 				ym.value = &ym.detune[op];
-				printToLCD("detune",1);
+				printToLCD(1);
 				break;
 			case 4: // total level
 				ym.value = &ym.totalLvl[op];
-				printToLCD("level",1);
+				printToLCD(1);
 				break;
 		}
 	} else if(ym.group == 2){
@@ -705,31 +779,31 @@ void changeCurrent(){
 		switch(ym.current){
 			case 0: // attack
 				ym.value = &ym.attack[op];
-				printToLCD("attack",1);
+				printToLCD(1);
 				break;
 			case 1: // decay
 				ym.value = &ym.decay[op];
-				printToLCD("decay",1);
+				printToLCD(1);
 				break;
 			case 2: // susLvl
 				ym.value = &ym.susLvl[op];
-				printToLCD("sustain",1);
+				printToLCD(1);
 				break;
 			case 3: // susRate
 				ym.value = &ym.susRate[op];
-				printToLCD("sust rate",1);
+				printToLCD(1);
 				break;
 			case 4: // release
 				ym.value = &ym.release[op];
-				printToLCD("release",1);
+				printToLCD(1);
 				break;
 			case 5: // rateScl
 				ym.value = &ym.rateScl[op];
-				printToLCD("rate scale",1);
+				printToLCD(1);
 				break;
 			case 6: // ssgeg
 				ym.value = &ym.ssgeg[op];
-				printToLCD("SSGEG",6);
+				printToLCD(6);
 				break;
 		}
 	} else if(ym.group == 3){
@@ -737,19 +811,19 @@ void changeCurrent(){
 		switch(ym.current){
 			case 0: // lfoFreq
 				ym.value = &ym.lfoFreq;
-				printToLCD("LFO freq",5);
+				printToLCD(5);
 				break;
 			case 1: // vibrato
 				ym.value = &ym.vibrato;
-				printToLCD("vibrato",0);
+				printToLCD(0);
 				break;
 			case 2: // tremolo
 				ym.value = &ym.tremolo;
-				printToLCD("AM sensitivity",0);
+				printToLCD(0);
 				break;
 			case 3: // am
 				ym.value = &ym.amOn[op];
-				printToLCD("AM",4);
+				printToLCD(4);
 				break;
 		}
 	}
@@ -762,66 +836,78 @@ void changeValue(){
 	
 	// group 0
 	if(val == &ym.patchNum){
-		minMaxValue(&ym.patchNum,0,18);
+		minMaxValue(&ym.patchNum,0,MAX_PRESET);
 		preset();
-		printToLCD("preset patch",7);
+		printToLCD(7);
+	
+	} else if(val == &ym.velSens){
+		minMaxValue(&ym.velSens,0,10);
+		printToLCD(0);
+	
+	} else if(val == &ym.minVel){
+		minMaxValue(&ym.minVel,0,127);
+		printToLCD(0);
+		
+	} else if(val == &ym.polyphony){
+		minMaxValue(&ym.polyphony,0,2);
+		printToLCD(8);
 		
 	// group 1
 	} else if(val == &ym.algorithm){
 		minMaxValue(&ym.algorithm,0,7);
 		writeToYM(op,ym.algorithm,ym.feedback,0xB0,0,3,0,1,0,0,0);
-		printToLCD("algorithm",3);
+		printToLCD(3);
 		
 	} else if(val == &ym.feedback){
 		minMaxValue(&ym.feedback,0,7);
 		writeToYM(op,ym.feedback,ym.algorithm,0xB0,3,0,0,1,0,0,0);
-		printToLCD("feedback",0);
-		
+		printToLCD(0);
+				
 	} else if(val == &ym.multiple[op]){
 		minMaxValue(&ym.multiple[op],0,15);
 		writeToYM(op,ym.multiple[op],ym.detune[op],0x30,0,4,1,1,6,0,0);
-		printToLCD("freq mult",2);
+		printToLCD(2);
 		
 	} else if(val == &ym.detune[op]){
 		minMaxValue(&ym.detune[op],-3,3);
 		writeToYM(op,ym.detune[op],ym.multiple[op],0x30,4,0,1,1,5,0,0);
-		printToLCD("detune",1);
+		printToLCD(1);
 		
 	} else if(val == &ym.totalLvl[op]){
 		minMaxValue(&ym.totalLvl[op],0,127);
 		writeToYM(op,ym.totalLvl[op],0,0x40,0,0,1,1,9,127,0);
-		printToLCD("level",1);
+		printToLCD(1);
 		
 	// group 2
 	} else if(val == &ym.attack[op]){
 		minMaxValue(&ym.attack[op],0,31);
 		writeToYM(op,ym.attack[op],ym.rateScl[op],0x50,0,6,1,1,1,31,0);
-		printToLCD("attack",1);
+		printToLCD(1);
 		
 	} else if(val == &ym.decay[op]){
 		minMaxValue(&ym.decay[op],0,31);
 		writeToYM(op,ym.decay[op],ym.amOn[op],0x60,0,7,1,1,1,31,0);
-		printToLCD("decay",1);
+		printToLCD(1);
 		
 	} else if(val == &ym.susLvl[op]){
 		minMaxValue(&ym.susLvl[op],0,15);
 		writeToYM(op,ym.susLvl[op],ym.release[op],0x80,4,0,1,1,3,15,15);
-		printToLCD("sustain",1);
+		printToLCD(1);
 		
 	} else if(val == &ym.susRate[op]){
 		minMaxValue(&ym.susRate[op],0,31);
 		writeToYM(op,ym.susRate[op],0,0x70,0,0,1,1,7,31,0); // case 7
-		printToLCD("sust rate",1);
+		printToLCD(1);
 		
 	} else if(val == &ym.release[op]){
 		minMaxValue(&ym.release[op],0,15);
 		writeToYM(op,ym.release[op],ym.susLvl[op],0x80,0,4,1,1,3,15,15); // case 3
-		printToLCD("release",1);
+		printToLCD(1);
 		
 	} else if(val == &ym.rateScl[op]){
 		minMaxValue(&ym.rateScl[op],0,3);
 		writeToYM(op,ym.rateScl[op],ym.attack[op],0x50,6,0,1,1,2,0,31); // case 2
-		printToLCD("rate scale",1);
+		printToLCD(1);
 		
 	} else if(val == &ym.ssgeg[op]){ // special case
 		minMaxValue(&ym.ssgeg[op],0,8);
@@ -830,7 +916,7 @@ void changeValue(){
 		} else {
 			writeToYM(op,ym.ssgeg[op]-1,1,0x90,0,3,1,1,0,0,0);
 		}
-		printToLCD("SSGEG",6);
+		printToLCD(6);
 		
 	// group 3
 	} else if(val == &ym.lfoFreq){ // special case
@@ -840,22 +926,32 @@ void changeValue(){
 		} else {
 			writeToYM(op,ym.lfoFreq-1,1,0x22,0,3,0,0,0,0,0);
 		}
-		printToLCD("LFO freq",5);
+		printToLCD(5);
 		
 	} else if(val == &ym.vibrato){
 		minMaxValue(&ym.vibrato,0,7);
 		writeToYM(op,ym.vibrato,ym.tremolo,0xB4,0,4,0,1,8,0,0); // case 8
-		printToLCD("vibrato",0);
+		printToLCD(0);
 		
 	} else if(val == &ym.tremolo){
 		minMaxValue(&ym.tremolo,0,3);
 		writeToYM(op,ym.tremolo,ym.vibrato,0xB4,4,0,0,1,8,0,0); // case 8
-		printToLCD("AM sensitivity",0);
+		printToLCD(0);
 		
 	} else if(val == &ym.amOn[op]){
 		minMaxValue(&ym.amOn[op],0,1);
 		writeToYM(op,ym.amOn[op],ym.decay[op],0x60,7,0,1,1,2,0,31); // case 2
-		printToLCD("AM",4);
+		printToLCD(4);
+
+	}
+}
+
+// return maximum of two values
+int max(int	val1, int val2){
+	if(val1 > val2){
+		return val1;
+	} else {
+		return val2;
 	}
 }
 
@@ -874,16 +970,15 @@ void note(uint8_t noteIn, uint8_t velocity, bool on){
 	uint16_t notes[] = {311, 329, 349, 370, 392, 415, 440, 466, 493, 523, 554, 586};
 	
 	noteOut = notes[noteIn % 12]; // ex. 63 is D# -> 63 % 12 = 3 -> notes[3] = 370 (Hz)
-	
-	uint8_t chanGrp; // flag to be written for channels
 		
 	if(on){ // note on message has been received
 		for(int i = 0; i < 6; i++){
-			chanGrp = (i > 2); // 0 or 1, depending on value of i
 			
 			// channel is not on and is not waiting to be turned on
 			if(!ym.notesOn[i][1] && !ym.notesOn[i][2]){
-				ym.vel[i] = velocity; // currently not in use
+				
+				ym.vel[i] = max(velocity, ym.minVel); // velocity can't be lower than minVel or else it'll all be too quiet maybe or something
+				
 				// format pitch to be written to YM2612
 				ym.freq[i][0] = (oct<<3) | ((noteOut & 0x0700)>>8); // top 3 bits of freq, next 3 bits are octave
 				ym.freq[i][1] = (noteOut & 0x00FF); // lower 8 bits of freq
@@ -895,6 +990,8 @@ void note(uint8_t noteIn, uint8_t velocity, bool on){
 				
 			// if it is already on but the note is the same value, turn channel off and then on again
 			} else if(ym.notesOn[i][1] && ym.notesOn[i][2] && ym.notesOn[i][0] == noteIn){
+				uint8_t chanGrp = (i > 2); // 0 or 1, depending on value of i
+				
 				sendreg(0, 0x28, 0x00+chan[i]);
 				
 				sendreg(chanGrp, 0xA4+i%3, ym.freq[i][0]);
@@ -982,7 +1079,15 @@ ISR(USART_RX_vect){
 					} else { // 127 / 8 = 18
 						sendreg(0,0x22,0x08+(data2/18));
 					}
+				
+				} else if(data1 == 64){ // sustain
+					if(data2 == 0){
+						ym.sustain = true;
+					} else {
+						ym.sustain = false;
+					} 
 				}
+				
 				break;
 			case 0xC0: // program change (probably won't use)
 				//
@@ -1036,6 +1141,7 @@ ISR(TIMER1_OVF_vect){
 	cli();
 	
 	uint8_t chanGrp;
+	int opLvl;
 	
 	for(int i = 0; i < 6; i++){
 		chanGrp = (i > 2);
@@ -1043,11 +1149,16 @@ ISR(TIMER1_OVF_vect){
 		// turn notes on 
 		if(ym.notesOn[i][1] && !ym.notesOn[i][2]){ // note is currently off but should be on
 			
-			/* FOR VELOCITY - not implemented yet
+			// FOR VELOCITY
+			
 			for(int o = 0; o < 4; o++){
-				sendreg(chanGrp, 0x40+n%3+opOffset[o], 127 - ym.vel[n]);
+				// velocity sensitivity: more sensitivity means output leans more and more toward velocity when averaging
+				opLvl = ((ym.velSens)*ym.vel[i] + (10-ym.velSens)*ym.totalLvl[o]) / 10;
+				
+				// each operator's level becomes the average of the selected level and velocity input
+				sendreg(chanGrp, 0x40+i%3+opOffset[o], 127 - opLvl);
 			}
-			*/
+			
 			
 			// set frequency high/low registers
 			sendreg(chanGrp, 0xA4+i%3, ym.freq[i][0]);
@@ -1062,13 +1173,15 @@ ISR(TIMER1_OVF_vect){
 		// turn notes off
 		} else if(!ym.notesOn[i][1] && ym.notesOn[i][2]){ // note is currently on but should be off
 			
-			// turn note off
-			sendreg(0, 0x28, 0x00+chan[i]);
-			
-			// clear channel's note number, set both flags to 0 to indicate that note is off
-			ym.notesOn[i][0] = 0;
-			ym.notesOn[i][1] = 0;
-			ym.notesOn[i][2] = 0;
+			if(!ym.sustain){ // see how this goes
+				// turn note off
+				sendreg(0, 0x28, 0x00+chan[i]);
+				
+				// clear channel's note number, set both flags to 0 to indicate that note is off
+				ym.notesOn[i][0] = 0;
+				ym.notesOn[i][1] = 0;
+				ym.notesOn[i][2] = 0;
+			}
 		}
 	}
 	
