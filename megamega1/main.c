@@ -699,22 +699,18 @@ void changeGroup(){
 	switch(ym.group){
 		case 0:
 			ym.value = &ym.patchNum;
-//			printToLCD("preset patch",7);
 			printToLCD(7);
 			break;
 		case 1:
 			ym.value = &ym.algorithm;
-//			printToLCD("algorithm",3);
 			printToLCD(3);
 			break;
 		case 2:
 			ym.value = &ym.attack[ym.op];
-//			printToLCD("attack",1);
 			printToLCD(1);
 			break;
 		case 3:
 			ym.value = &ym.lfoFreq;
-//			printToLCD("LFO frequency",5);
 			printToLCD(5);
 			break;
 	}
@@ -733,7 +729,7 @@ void changeCurrent(){
 		
 		switch(ym.current){
 			case 0:
-				ym.value = &ym.patchNum; // ??????
+				ym.value = &ym.patchNum;
 				printToLCD(7);
 				break;
 			case 1:
