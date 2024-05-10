@@ -66,6 +66,7 @@
 
 #include <avr/io.h>
 #include <avr/interrupt.h>
+#include <avr/pgmspace.h>
 #include <util/delay.h>
 #include <avr/power.h>
 #include <stdlib.h>
@@ -171,9 +172,24 @@ const char* playModes[] = { "polyphonic","mono retrig","mono legato" };
 // see https://www.plutiedev.com/ym2612-registers for more info
 const uint8_t chan[] = {0, 1, 2, 4, 5, 6};
 const uint8_t opOffset[] = {0, 0x08, 0x04, 0x0C};
-const uint8_t globalRegs[] = {0x22, 0x28};
-const uint8_t channelRegs[] = {0xA0, 0xA4, 0xB0, 0xB4};
-const uint8_t opRegs[] = {0x30, 0x40, 0x50, 0x60, 0x70, 0x80, 0x90};
+	
+// these will be used by random mode
+#define NUM_REGS 98
+
+// ALL registers used for programming YM2612
+const uint8_t regs[] = {
+  	0x22,						0xA0, 0xA4,	0xB0, 0xB4,		0x30, 0x38, 0x34, 0x3C,
+	0x28,						0xA1, 0xA5,	0xB1, 0xB5,		0x31, 0x39, 0x35, 0x3D,
+								0xA2, 0xA6,	0xB2, 0xB6,		0x32, 0x3A, 0x36, 0x3E,
+	// ^ global regs             ^ per channel regs ^        rest are per operator
+	0x40, 0x48, 0x44, 0x4C,		0x50, 0x58, 0x54, 0x5C,		0x60, 0x68, 0x64, 0x6C,
+	0x41, 0x49, 0x45, 0x4D,		0x51, 0x59, 0x55, 0x5D,		0x61, 0x69, 0x65, 0x6D,
+	0x42, 0x4A, 0x46, 0x4E,		0x52, 0x5A, 0x56, 0x5E,		0x62, 0x6A, 0x66, 0x6E,
+
+	0x70, 0x78, 0x74, 0x7C,		0x80, 0x88, 0x84, 0x8C,		0x90, 0x98, 0x94, 0x9C,		
+	0x71, 0x79, 0x75, 0x7D,		0x81, 0x89, 0x85, 0x8D,		0x91, 0x99, 0x95, 0x9D,		
+	0x72, 0x7A, 0x76, 0x7E,		0x82, 0x8A, 0x86, 0x8E,		0x92, 0x9A, 0x96, 0x9E,		
+};
 	
 // global variables
 struct GlobalVars {
@@ -699,22 +715,18 @@ void changeGroup(){
 	switch(ym.group){
 		case 0:
 			ym.value = &ym.patchNum;
-//			printToLCD("preset patch",7);
 			printToLCD(7);
 			break;
 		case 1:
 			ym.value = &ym.algorithm;
-//			printToLCD("algorithm",3);
 			printToLCD(3);
 			break;
 		case 2:
 			ym.value = &ym.attack[ym.op];
-//			printToLCD("attack",1);
 			printToLCD(1);
 			break;
 		case 3:
 			ym.value = &ym.lfoFreq;
-//			printToLCD("LFO frequency",5);
 			printToLCD(5);
 			break;
 	}
@@ -733,7 +745,7 @@ void changeCurrent(){
 		
 		switch(ym.current){
 			case 0:
-				ym.value = &ym.patchNum; // ??????
+				ym.value = &ym.patchNum;
 				printToLCD(7);
 				break;
 			case 1:
@@ -1116,6 +1128,9 @@ ISR(USART_RX_vect){
 			case 0xE0: // pitch bend (kinda wonky, use it to turn all notes off instead for now)
 				for(int i = 0; i < 6; i++){
 					sendreg(0, 0x28, 0x00+chan[i]);
+					ym.notesOn[i][0] = 0;
+					ym.notesOn[i][1] = 0;
+					ym.notesOn[i][2] = 0;
 				}
 					/*
 					if(data1 == 0){
